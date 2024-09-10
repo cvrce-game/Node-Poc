@@ -1,12 +1,14 @@
 import express from 'express';
 import multer from 'multer';
 import { MongoClient, ObjectId, ServerApiVersion } from 'mongodb';
+import dotenv from 'dotenv';
+dotenv.config();
 
 const PORT = 3000;
 const app = express();
 
 // MongoDB Connection URI
-const uri = "mongodb+srv://Cluster69117:Papun%40321@nodepoc.fwosy.mongodb.net/?retryWrites=true&w=majority&appName=NodePOC";
+const uri = process.env.MONGODB_URI;
 const client = new MongoClient(uri, {
     serverApi: {
         version: ServerApiVersion.v1,
