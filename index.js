@@ -1,123 +1,136 @@
 import express from 'express';
-import fs from 'fs';
-import users from './MOCK_DATA.json' assert { type: 'json' };
 import multer from 'multer';
+import { MongoClient, ObjectId, ServerApiVersion } from 'mongodb';
 
 const PORT = 3000;
 const app = express();
 
-// Configure multer to handle multipart/form-data
+// MongoDB Connection URI
+const uri = "mongodb+srv://Cluster69117:Papun%40321@nodepoc.fwosy.mongodb.net/?retryWrites=true&w=majority&appName=NodePOC";
+const client = new MongoClient(uri, {
+    serverApi: {
+        version: ServerApiVersion.v1,
+        strict: true,
+        deprecationErrors: true,
+    }
+});
+
+// Multer middleware to handle form-data
 const upload = multer();
 
 // Middleware to parse JSON and URL-encoded bodies
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// Custom middlewares
 app.use((req, res, next) => {
     req.userName = 'Papun';
-    console.log('Hello From Middleware 1', req.userName);
+    console.log('Middleware 1:', req.userName);
     next();
 });
 
 app.use((req, res, next) => {
     req.Password = 'xyz';
-    console.log('Hello From Middleware 2', req.userName);
+    console.log('Middleware 2:', req.userName);
     next();
 });
 
-// Get all users
-app.get('/api/users', (req, res) => {
-    console.log({ userName: req.userName, Password: req.Password });
-    return res.json(users);
-});
+// MongoDB connection and data handling
+async function connectToMongoDB() {
+    try {
+        await client.connect();
+        const db = client.db('sample_mflix');  // Replace with your DB name
+        const usersCollection = db.collection('users');
 
-// Add a new user with form data (multipart/form-data)
-app.post('/api/users', upload.none(), (req, res) => {
-    const body = req.body;
+        // Get all users
+        app.get('/api/users', async (req, res) => {
+            try {
+                const users = await usersCollection.find({}).toArray();
+                res.json(users);
+            } catch (error) {
+                res.status(500).json({ error: 'Error fetching users' });
+            }
+        });
 
-    // Basic validation
-    if (!body.first_name || !body.email) {
-        return res.status(400).json({ error: 'Name and email are required' });
+        // Add a new user
+        app.post('/api/users', upload.none(), async (req, res) => {
+            const { name, email, password } = req.body;
+
+            // Validation
+            if (!name || !email) {
+                return res.status(400).json({ error: 'First name and email are required' });
+            }
+
+            try {
+                const newUser = { name, email, password };
+                const result = await usersCollection.insertOne(newUser);
+                res.status(201).json({ status: 'User Added', id: result.insertedId });
+            } catch (error) {
+                res.status(500).json({ error: 'Failed to add user' });
+            }
+        });
+
+        // Get, update, and delete user by ID
+        app.route('/api/users/:id')
+            .get(async (req, res) => {
+                const id = req.params.id;
+                try {
+                    const user = await usersCollection.findOne({ _id: new ObjectId(id) });
+                    if (!user) {
+                        return res.status(404).json({ error: 'User not found' });
+                    }
+                    res.json(user);
+                } catch (error) {
+                    res.status(500).json({ error: 'Error fetching user' });
+                }
+            })
+            .put(upload.none(), async (req, res) => {
+                const id = req.params.id;
+                const { name, email,password } = req.body;
+
+                if (!name || !email) {
+                    return res.status(400).json({ error: 'First name and email are required' });
+                }
+
+                try {
+                    const updatedUser = await usersCollection.updateOne(
+                        { _id: new ObjectId(id) },
+                        { $set: { name, email,password } }
+                    );
+                    if (updatedUser.matchedCount === 0) {
+                        return res.status(404).json({ error: 'User not found' });
+                    }
+                    res.status(200).json({ status: 'User Updated' });
+                } catch (error) {
+                    res.status(500).json({ error: 'Failed to update user' });
+                }
+            })
+            .delete(async (req, res) => {
+                const id = req.params.id;
+                try {
+                    const deletedUser = await usersCollection.deleteOne({ _id: new ObjectId(id) });
+                    if (deletedUser.deletedCount === 0) {
+                        return res.status(404).json({ error: 'User not found' });
+                    }
+                    res.status(200).json({ status: 'User Deleted' });
+                } catch (error) {
+                    res.status(500).json({ error: 'Failed to delete user' });
+                }
+            });
+
+        // About page
+        app.get('/about', (req, res) => {
+            const name = req.query.name || 'Guest';
+            const age = req.query.age || 'unknown';
+            res.send(`This is the About Page..!!\n Hey ${name}. You are ${age} years old.`);
+        });
+
+    } catch (error) {
+        console.error('Error connecting to MongoDB:', error);
     }
+}
 
-    const newUser = { id: users.length + 1, ...body };
-    users.push(newUser);
-
-    // Write updated data to the file
-    fs.writeFile('./MOCK_DATA.json', JSON.stringify(users, null, 2), (error) => {
-        if (error) {
-            console.error('Error writing to file:', error);
-            return res.status(500).json({ error: 'Failed to update users file' });
-        }
-        return res.status(201).json({ status: 'User Added', id: newUser.id });
-    });
+// Connect to MongoDB and start the server
+connectToMongoDB().then(() => {
+    app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
 });
-
-// Route to get, update, or delete a specific user by ID
-app.route('/api/users/:id')
-    .get((req, res) => {
-        const id = parseInt(req.params.id, 10);  // Ensure ID is a number
-        const user = users.find(user => user.id === id);
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-        return res.json(user);
-    })
-    .put(upload.none(), (req, res) => {
-        const id = parseInt(req.params.id, 10);
-        const body = req.body;
-
-        // Find user by id
-        const userIndex = users.findIndex(user => user.id === id);
-        if (userIndex === -1) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        // Basic validation
-        if (!body.first_name || !body.email) {
-            return res.status(400).json({ error: 'Name and email are required' });
-        }
-
-        // Update the user
-        users[userIndex] = { id, ...body };
-
-        // Write updated data to the file
-        fs.writeFile('./MOCK_DATA.json', JSON.stringify(users, null, 2), (error) => {
-            if (error) {
-                console.error('Error writing to file:', error);
-                return res.status(500).json({ error: 'Failed to update users file' });
-            }
-            return res.status(200).json({ status: 'User Updated', id });
-        });
-    })
-    .delete((req, res) => {
-        const id = parseInt(req.params.id, 10);
-
-        // Find user by id
-        const userIndex = users.findIndex(user => user.id === id);
-        if (userIndex === -1) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        // Remove the user from the array
-        users.splice(userIndex, 1);
-
-        // Write updated data to the file
-        fs.writeFile('./MOCK_DATA.json', JSON.stringify(users, null, 2), (error) => {
-            if (error) {
-                console.error('Error writing to file:', error);
-                return res.status(500).json({ error: 'Failed to update users file' });
-            }
-            return res.status(200).json({ status: 'User Deleted', id });
-        });
-    });
-
-// About page with query params
-app.get('/about', (req, res) => {
-    const name = req.query.name || 'Guest';
-    const age = req.query.age || 'unknown';
-    res.send(`This is the About Page..!!\n Hey ${name}. You are ${age} years old.`);
-});
-
-// Start the server
-app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
