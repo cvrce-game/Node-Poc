@@ -13,15 +13,28 @@ const upload = multer();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+app.use((req, res, next) => {
+    req.userName = 'Papun';
+    console.log('Hello From Middleware 1', req.userName);
+    next();
+});
+
+app.use((req, res, next) => {
+    req.Password = 'xyz';
+    console.log('Hello From Middleware 2', req.userName);
+    next();
+});
+
 // Get all users
 app.get('/api/users', (req, res) => {
+    console.log({ userName: req.userName, Password: req.Password });
     return res.json(users);
 });
 
 // Add a new user with form data (multipart/form-data)
 app.post('/api/users', upload.none(), (req, res) => {
     const body = req.body;
-    
+
     // Basic validation
     if (!body.first_name || !body.email) {
         return res.status(400).json({ error: 'Name and email are required' });
